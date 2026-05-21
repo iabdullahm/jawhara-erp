@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AppShell } from '@/components/app-shell';
 import { api } from '@/lib/api';
-import type { Branch, Category, Karat, MetalType } from '@/lib/types';
+import type { Branch, Category, Karat, MetalType, PricingMode } from '@/lib/types';
 
 interface FormState {
   name: string;
@@ -18,8 +18,11 @@ interface FormState {
   grossWeight: string;
   netWeight: string;
   stoneWeight: string;
+  pricingMode: PricingMode;
   makingCharge: string;
   makingChargePerGram: string;
+  fixedSalePrice: string;
+  safetyMarginPct: string;
   size: string;
   notes: string;
 }
@@ -34,8 +37,11 @@ const initial: FormState = {
   grossWeight: '',
   netWeight: '',
   stoneWeight: '0',
+  pricingMode: 'DYNAMIC',
   makingCharge: '0',
   makingChargePerGram: '0',
+  fixedSalePrice: '',
+  safetyMarginPct: '0',
   size: '',
   notes: '',
 };
@@ -88,8 +94,13 @@ export default function NewProductPage() {
       grossWeight: parseFloat(form.grossWeight),
       netWeight: parseFloat(form.netWeight),
       stoneWeight: parseFloat(form.stoneWeight || '0'),
+      pricingMode: form.pricingMode,
       makingCharge: parseFloat(form.makingCharge || '0'),
       makingChargePerGram: parseFloat(form.makingChargePerGram || '0'),
+      fixedSalePrice: form.fixedSalePrice
+        ? parseFloat(form.fixedSalePrice)
+        : undefined,
+      safetyMarginPct: parseFloat(form.safetyMarginPct || '0'),
       size: form.size || undefined,
       notes: form.notes || undefined,
     };
@@ -239,31 +250,117 @@ export default function NewProductPage() {
           </div>
         </section>
 
-        {/* Pricing */}
+        {/* Pricing Mode - الجزء الأهم */}
         <section className="card p-6">
-          <h2 className="text-base font-bold mb-4 text-slate-800">
-            التسعير (أجرة الصياغة)
+          <h2 className="text-base font-bold mb-2 text-slate-800">
+            آلية التسعير
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Field label="أجرة الصياغة مقطوعة (OMR)">
-              <input
-                type="number"
-                step="0.001"
-                className="input"
-                value={form.makingCharge}
-                onChange={(e) => set('makingCharge', e.target.value)}
-              />
-            </Field>
-            <Field label="أجرة الصياغة لكل جرام (OMR)">
-              <input
-                type="number"
-                step="0.001"
-                className="input"
-                value={form.makingChargePerGram}
-                onChange={(e) => set('makingChargePerGram', e.target.value)}
-              />
-            </Field>
+          <p className="text-xs text-slate-500 mb-4">
+            اختر كيف يُحسب سعر هذه القطعة عند البيع
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+            <PricingCard
+              mode="DYNAMIC"
+              selected={form.pricingMode === 'DYNAMIC'}
+              onSelect={() => set('pricingMode', 'DYNAMIC')}
+              title="ديناميكي"
+              subtitle="يتبع سعر الذهب اليومي"
+              formula="السعر = (الوزن × سعر اليوم) + الأجرة"
+              best="السبائك، السلاسل، الأساور، الخواتم البسيطة"
+              color="emerald"
+            />
+            <PricingCard
+              mode="FIXED"
+              selected={form.pricingMode === 'FIXED'}
+              onSelect={() => set('pricingMode', 'FIXED')}
+              title="سعر ثابت"
+              subtitle="لا يتأثر بسعر الذهب"
+              formula="السعر = القيمة التي أدخلتها"
+              best="الماس، الأحجار الكريمة، الأنتيك، العلامات التجارية"
+              color="purple"
+            />
+            <PricingCard
+              mode="HYBRID"
+              selected={form.pricingMode === 'HYBRID'}
+              onSelect={() => set('pricingMode', 'HYBRID')}
+              title="هجين (مزيج)"
+              subtitle="الأكبر بين الثابت والديناميكي"
+              formula="السعر = max(ثابت، ديناميكي)"
+              best="قطع لها قيمة فنية + حماية من ارتفاع الذهب"
+              color="amber"
+            />
           </div>
+
+          {/* أجرة الصياغة - تُستخدم في DYNAMIC و HYBRID */}
+          {(form.pricingMode === 'DYNAMIC' ||
+            form.pricingMode === 'HYBRID') && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-slate-200">
+              <Field label="أجرة الصياغة مقطوعة (OMR)">
+                <input
+                  type="number"
+                  step="0.001"
+                  className="input"
+                  value={form.makingCharge}
+                  onChange={(e) => set('makingCharge', e.target.value)}
+                />
+              </Field>
+              <Field label="أجرة الصياغة لكل جرام (OMR)">
+                <input
+                  type="number"
+                  step="0.001"
+                  className="input"
+                  value={form.makingChargePerGram}
+                  onChange={(e) => set('makingChargePerGram', e.target.value)}
+                />
+              </Field>
+              <Field label="هامش الأمان % (اختياري)">
+                <input
+                  type="number"
+                  step="0.1"
+                  className="input"
+                  value={form.safetyMarginPct}
+                  onChange={(e) => set('safetyMarginPct', e.target.value)}
+                  placeholder="مثلاً 2 = +2% فوق سعر السوق"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  حماية من تقلبات اليوم. مثلاً 2% يضيف 2% فوق السعر الديناميكي.
+                </p>
+              </Field>
+            </div>
+          )}
+
+          {/* السعر الثابت - يُستخدم في FIXED و HYBRID */}
+          {(form.pricingMode === 'FIXED' || form.pricingMode === 'HYBRID') && (
+            <div className="pt-4 border-t border-slate-200 mt-4">
+              <Field
+                label={
+                  form.pricingMode === 'FIXED'
+                    ? 'سعر البيع الثابت (OMR) *'
+                    : 'الحد الأدنى للسعر (OMR) *'
+                }
+                required
+              >
+                <input
+                  type="number"
+                  step="0.001"
+                  className="input text-lg font-bold"
+                  value={form.fixedSalePrice}
+                  onChange={(e) => set('fixedSalePrice', e.target.value)}
+                  placeholder="مثلاً 850.000"
+                  required={
+                    form.pricingMode === 'FIXED' ||
+                    form.pricingMode === 'HYBRID'
+                  }
+                />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  {form.pricingMode === 'FIXED'
+                    ? 'هذا السعر سيُعرض للعميل بغض النظر عن تغيرات الذهب.'
+                    : 'لن ينزل سعر القطعة عن هذا الحد حتى لو نزل الذهب.'}
+                </p>
+              </Field>
+            </div>
+          )}
         </section>
 
         {/* Extra */}
@@ -324,5 +421,74 @@ function Field({
       <label className="label">{label}</label>
       {children}
     </div>
+  );
+}
+
+function PricingCard({
+  mode,
+  selected,
+  onSelect,
+  title,
+  subtitle,
+  formula,
+  best,
+  color,
+}: {
+  mode: PricingMode;
+  selected: boolean;
+  onSelect: () => void;
+  title: string;
+  subtitle: string;
+  formula: string;
+  best: string;
+  color: 'emerald' | 'purple' | 'amber';
+}) {
+  const colorClasses = {
+    emerald: {
+      border: 'border-emerald-500 ring-emerald-200 bg-emerald-50',
+      badge: 'bg-emerald-100 text-emerald-700',
+    },
+    purple: {
+      border: 'border-purple-500 ring-purple-200 bg-purple-50',
+      badge: 'bg-purple-100 text-purple-700',
+    },
+    amber: {
+      border: 'border-amber-500 ring-amber-200 bg-amber-50',
+      badge: 'bg-amber-100 text-amber-700',
+    },
+  };
+  const c = colorClasses[color];
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={[
+        'text-right p-4 rounded-xl border-2 transition cursor-pointer',
+        selected
+          ? `${c.border} ring-4`
+          : 'border-slate-200 hover:border-slate-300 bg-white',
+      ].join(' ')}
+    >
+      <div className="flex items-center justify-between mb-2">
+        <span
+          className={`text-xs font-mono px-2 py-0.5 rounded ${c.badge}`}
+        >
+          {mode}
+        </span>
+        {selected && (
+          <span className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-white text-xs">
+            ✓
+          </span>
+        )}
+      </div>
+      <div className="font-bold text-slate-800">{title}</div>
+      <div className="text-xs text-slate-500 mt-0.5">{subtitle}</div>
+      <div className="text-[11px] text-slate-600 mt-3 font-mono bg-white/60 rounded px-2 py-1 border border-slate-200">
+        {formula}
+      </div>
+      <div className="text-[11px] text-slate-500 mt-2">
+        <span className="font-medium">الأنسب لـ:</span> {best}
+      </div>
+    </button>
   );
 }

@@ -18,6 +18,7 @@ import {
   WeightUnit,
   ProductStatus,
   OwnershipType,
+  PricingMode,
 } from '@prisma/client';
 
 export class ProductStoneDto {
@@ -164,6 +165,24 @@ export class CreateProductDto {
   @IsOptional()
   @IsEnum(WeightUnit)
   sellingUnit?: WeightUnit;
+
+  @ApiPropertyOptional({
+    enum: PricingMode,
+    default: PricingMode.DYNAMIC,
+    description: 'آلية التسعير: DYNAMIC (يتبع سعر الذهب) / FIXED (سعر ثابت) / HYBRID (مزيج)',
+  })
+  @IsOptional()
+  @IsEnum(PricingMode)
+  pricingMode?: PricingMode;
+
+  @ApiPropertyOptional({
+    description: 'هامش أمان % يُضاف للسعر الديناميكي (مثلاً 2 = +2%)',
+    default: 0,
+  })
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  safetyMarginPct?: number;
 
   @ApiPropertyOptional({ description: 'أجرة الصياغة مقطوعة' })
   @IsOptional()

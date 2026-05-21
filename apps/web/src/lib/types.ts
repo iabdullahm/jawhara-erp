@@ -25,6 +25,8 @@ export type ProductStatus =
 
 export type OwnershipType = 'OWNED' | 'CONSIGNMENT' | 'OLD_GOLD';
 
+export type PricingMode = 'DYNAMIC' | 'FIXED' | 'HYBRID';
+
 export type WeightUnit = 'GRAM' | 'CARAT' | 'PIECE' | 'OUNCE';
 
 export interface Branch {

@@ -61,6 +61,21 @@ enum OwnershipType {
   OLD_GOLD     // ذهب قديم مستلم من عميل
 }
 
+/// آلية تسعير المنتج
+enum PricingMode {
+  /// السعر يُحسب لحظياً = (الوزن × سعر الذهب اليوم) + الأحجار + الأجرة
+  /// مناسب لـ: السبائك، السلاسل، الأساور البسيطة، الخواتم العادية
+  DYNAMIC
+
+  /// سعر بيع ثابت تحدده يدوياً (لا يتأثر بتقلبات الذهب)
+  /// مناسب لـ: الماس، الأحجار الكريمة الفاخرة، العلامات التجارية، الأنتيك
+  FIXED
+
+  /// هجين: سعر ثابت كحد أدنى + ديناميكي إذا تجاوزه
+  /// مناسب لـ: قطع لها قيمة فنية لكن مع حماية من ارتفاع الذهب
+  HYBRID
+}
+
 enum StockMovementType {
   PURCHASE       // شراء (دخول)
   SALE           // بيع (خروج)
@@ -177,10 +192,12 @@ model Product {
   sellingUnit        WeightUnit     @default(GRAM)
 
   // التسعير
+  pricingMode        PricingMode    @default(DYNAMIC) // آلية حساب السعر
   makingCharge       Decimal        @default(0) @db.Decimal(14, 4) // أجرة الصياغة (مقطوعة)
   makingChargePerGram Decimal       @default(0) @db.Decimal(14, 4) // أجرة الصياغة بالجرام
-  fixedSalePrice     Decimal?       @db.Decimal(14, 4) // سعر بيع ثابت (للقطع التي تُباع بسعر ثابت)
+  fixedSalePrice     Decimal?       @db.Decimal(14, 4) // سعر بيع ثابت (يُستخدم مع FIXED أو HYBRID)
   costPrice          Decimal?       @db.Decimal(14, 4) // التكلفة (سعر الشراء)
+  safetyMarginPct    Decimal        @default(0) @db.Decimal(6, 2) // هامش أمان % (للحماية من تقلبات الذهب)
 
   // البصمة والشهادات
   hallmark           String?        // رقم البصمة الرسمية

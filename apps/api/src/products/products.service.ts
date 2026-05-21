@@ -83,6 +83,8 @@ export class ProductsService {
           netWeight: new Prisma.Decimal(dto.netWeight),
           stoneWeight: new Prisma.Decimal(dto.stoneWeight ?? 0),
           sellingUnit: dto.sellingUnit ?? 'GRAM',
+          pricingMode: dto.pricingMode ?? 'DYNAMIC',
+          safetyMarginPct: new Prisma.Decimal(dto.safetyMarginPct ?? 0),
           makingCharge: new Prisma.Decimal(dto.makingCharge ?? 0),
           makingChargePerGram: new Prisma.Decimal(dto.makingChargePerGram ?? 0),
           fixedSalePrice: dto.fixedSalePrice
@@ -263,33 +265,50 @@ export class ProductsService {
   }
 
   /**
-   * حساب السعر الحالي للمنتج بناءً على سعر الذهب اليومي.
-   * السعر = (وزن المعدن × سعر الذهب للعيار) + قيمة الأحجار + أجرة الصياغة
+   * حساب السعر الحالي للمنتج حسب pricingMode:
+   * - DYNAMIC: السعر = (وزن × سعر اليوم) + أحجار + أجرة
+   * - FIXED: السعر = fixedSalePrice (ثابت بغض النظر عن السوق)
+   * - HYBRID: max(FIXED, DYNAMIC) — يحمي من ارتفاع الذهب فوق السعر الثابت
    */
   async calculateCurrentPrice(id: string) {
     const product = await this.findOne(id);
 
-    // إذا كان للقطعة سعر بيع ثابت، نعيده مباشرة
-    if (product.fixedSalePrice) {
+    // ===== FIXED mode =====
+    if (product.pricingMode === 'FIXED') {
+      if (!product.fixedSalePrice) {
+        throw new BadRequestException(
+          'pricingMode = FIXED يتطلب fixedSalePrice محدداً',
+        );
+      }
       return {
         productId: id,
         method: 'fixed',
+        pricingMode: 'FIXED',
         finalPrice: product.fixedSalePrice.toNumber(),
-        breakdown: {
-          fixedPrice: product.fixedSalePrice.toNumber(),
-        },
+        breakdown: { fixedPrice: product.fixedSalePrice.toNumber() },
       };
     }
 
-    // الحصول على سعر الذهب الحالي للعيار
+    // ===== DYNAMIC أو HYBRID — نحسب السعر الديناميكي =====
     const goldRate = await this.goldRatesService.getCurrentRate({
       metalType: product.metalType,
       karat: product.karat,
       branchId: product.branchId,
     });
     if (!goldRate) {
+      // في HYBRID نتساهل ونعيد السعر الثابت
+      if (product.pricingMode === 'HYBRID' && product.fixedSalePrice) {
+        return {
+          productId: id,
+          method: 'fixed-fallback',
+          pricingMode: 'HYBRID',
+          warning: 'لا يوجد سعر ذهب — استُخدم السعر الثابت كحد أدنى',
+          finalPrice: product.fixedSalePrice.toNumber(),
+          breakdown: { fixedPrice: product.fixedSalePrice.toNumber() },
+        };
+      }
       throw new BadRequestException(
-        `لا يوجد سعر ذهب محدد لعيار ${product.karat}. يجب إدخال السعر اليومي أولاً.`,
+        `لا يوجد سعر ذهب محدد لعيار ${product.karat}. أدخل السعر اليومي أولاً أو غيّر pricingMode إلى FIXED.`,
       );
     }
 
@@ -297,7 +316,7 @@ export class ProductsService {
     const ratePerGram = new Decimal(goldRate.ratePerGram.toString());
     const goldValue = netWeight.mul(ratePerGram);
 
-    // قيمة الأحجار (مجموع totalValue)
+    // قيمة الأحجار
     const stonesValue = product.stones.reduce((acc, s) => {
       if (s.totalValue) return acc.plus(s.totalValue.toString());
       if (s.pricePerCarat) {
@@ -308,18 +327,57 @@ export class ProductsService {
       return acc;
     }, new Decimal(0));
 
-    // أجرة الصياغة (إما مقطوعة أو بالجرام)
+    // أجرة الصياغة
     const makingChargeFlat = new Decimal(product.makingCharge.toString());
     const makingPerGram = new Decimal(
       product.makingChargePerGram.toString(),
     ).mul(netWeight);
     const totalMaking = makingChargeFlat.plus(makingPerGram);
 
-    const subtotal = goldValue.plus(stonesValue).plus(totalMaking);
+    let subtotal = goldValue.plus(stonesValue).plus(totalMaking);
 
+    // هامش الأمان (للحماية من تقلبات السوق)
+    const safetyPct = new Decimal(product.safetyMarginPct.toString());
+    const safetyAmount = subtotal.mul(safetyPct).div(100);
+    subtotal = subtotal.plus(safetyAmount);
+
+    // ===== HYBRID mode: نأخذ الأكبر بين الثابت والديناميكي =====
+    if (product.pricingMode === 'HYBRID' && product.fixedSalePrice) {
+      const fixedPrice = new Decimal(product.fixedSalePrice.toString());
+      const finalPrice = Decimal.max(subtotal, fixedPrice);
+      const usedFloor = finalPrice.equals(fixedPrice);
+      return {
+        productId: id,
+        method: 'hybrid',
+        pricingMode: 'HYBRID',
+        usedFloor,
+        note: usedFloor
+          ? 'السعر الديناميكي أقل من الحد الأدنى — استُخدم السعر الثابت'
+          : 'السعر الديناميكي أعلى — استُخدم لحماية الهامش',
+        goldRate: {
+          karat: product.karat,
+          ratePerGram: ratePerGram.toNumber(),
+          currency: goldRate.currency,
+          effectiveDate: goldRate.effectiveDate,
+        },
+        breakdown: {
+          netWeight: netWeight.toNumber(),
+          goldValue: goldValue.toNumber(),
+          stonesValue: stonesValue.toNumber(),
+          makingCharge: totalMaking.toNumber(),
+          safetyMargin: safetyAmount.toNumber(),
+          computedPrice: subtotal.toNumber(),
+          floorPrice: fixedPrice.toNumber(),
+        },
+        finalPrice: finalPrice.toNumber(),
+      };
+    }
+
+    // ===== DYNAMIC mode =====
     return {
       productId: id,
       method: 'computed',
+      pricingMode: 'DYNAMIC',
       goldRate: {
         karat: product.karat,
         ratePerGram: ratePerGram.toNumber(),
@@ -331,6 +389,7 @@ export class ProductsService {
         goldValue: goldValue.toNumber(),
         stonesValue: stonesValue.toNumber(),
         makingCharge: totalMaking.toNumber(),
+        safetyMargin: safetyAmount.toNumber(),
         subtotal: subtotal.toNumber(),
       },
       finalPrice: subtotal.toNumber(),
