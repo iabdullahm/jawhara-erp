@@ -204,7 +204,7 @@ export default function ProductsPage() {
   );
 }
 
-function Th({ children }: { children: React.ReactNode }) {
+function Th({ children }: { children?: React.ReactNode }) {
   return (
     <th className="text-right font-medium text-xs px-4 py-3 uppercase tracking-wider">
       {children}
