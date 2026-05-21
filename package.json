@@ -1,0 +1,27 @@
+{
+  "name": "jawhara-erp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "JawharaERP — Cloud-based jewelry ERP system",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:migrate": "pnpm --filter @jawhara/api prisma migrate dev",
+    "db:seed": "pnpm --filter @jawhara/api prisma db seed",
+    "db:studio": "pnpm --filter @jawhara/api prisma studio",
+    "api:dev": "pnpm --filter @jawhara/api dev",
+    "web:dev": "pnpm --filter @jawhara/web dev"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "prettier": "^3.2.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@9.0.0"
+}

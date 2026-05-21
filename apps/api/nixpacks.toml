@@ -1,0 +1,15 @@
+# بديل Dockerfile لـ Railway (إذا قررت استخدام Nixpacks بدل Docker)
+[phases.setup]
+nixPkgs = ['nodejs_20', 'pnpm-9_x']
+
+[phases.install]
+cmds = ['pnpm install --no-frozen-lockfile']
+
+[phases.build]
+cmds = [
+  'cd apps/api && pnpm prisma generate',
+  'cd apps/api && pnpm build'
+]
+
+[start]
+cmd = 'cd apps/api && pnpm prisma migrate deploy && node dist/main.js'
