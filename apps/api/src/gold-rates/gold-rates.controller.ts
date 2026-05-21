@@ -1,17 +1,46 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiQuery, ApiBody } from '@nestjs/swagger';
 import { Karat } from '@prisma/client';
+import { IsOptional, IsString, IsNumber, Min } from 'class-validator';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { CreateGoldRateDto, GoldRatesService } from './gold-rates.service';
+import { GoldPriceApiService } from './gold-price-api.service';
+
+export class SyncRatesDto {
+  @ApiPropertyOptional({ default: 'USD', description: 'عملة المصدر من API' })
+  @IsOptional() @IsString() baseCurrency?: string;
+
+  @ApiPropertyOptional({ default: 'OMR', description: 'العملة المحلية للحفظ' })
+  @IsOptional() @IsString() targetCurrency?: string;
+
+  @ApiPropertyOptional({ description: 'سعر صرف يدوي (افتراضياً يُستخدم سعر مدمج)' })
+  @IsOptional() @IsNumber() @Min(0) fxRate?: number;
+
+  @ApiPropertyOptional({ description: 'فرع محدد، أو null لسعر عام' })
+  @IsOptional() @IsString() branchId?: string;
+}
 
 @ApiTags('Gold Rates — أسعار الذهب اليومية')
 @Controller('gold-rates')
 export class GoldRatesController {
-  constructor(private readonly goldRates: GoldRatesService) {}
+  constructor(
+    private readonly goldRates: GoldRatesService,
+    private readonly goldPriceApi: GoldPriceApiService,
+  ) {}
 
   @Post()
-  @ApiOperation({ summary: 'إدخال سعر ذهب جديد (يُستخدم من الآن في الحسابات)' })
+  @ApiOperation({ summary: 'إدخال سعر ذهب جديد يدوياً' })
   create(@Body() dto: CreateGoldRateDto) {
     return this.goldRates.create(dto);
+  }
+
+  @Post('sync')
+  @ApiOperation({
+    summary: '🔄 جلب أسعار الذهب الحقيقية من goldapi.io وحفظها',
+    description: 'يجلب أسعار 5 عيارات (24/22/21/18/14) ويحوّلها للعملة المحلية',
+  })
+  syncFromApi(@Body() dto: SyncRatesDto) {
+    return this.goldPriceApi.syncRates(dto);
   }
 
   @Get('today')

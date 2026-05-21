@@ -114,6 +114,8 @@ export interface GoldRate {
   ratePerGram: string | number;
   currency: string;
   effectiveDate: string;
+  source?: string | null;
+  notes?: string | null;
 }
 
 export interface PriceBreakdown {
