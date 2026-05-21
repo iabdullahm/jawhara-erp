@@ -1,11 +1,14 @@
 # ============================================================
-# JawharaERP API — Dockerfile (root level for Railway auto-detect)
-# Build context: monorepo root
-# Builds and runs the NestJS API only.
+# JawharaERP API — Dockerfile
+# Uses node:20-slim (Debian) instead of Alpine because Prisma
+# has trouble detecting OpenSSL on Alpine in some setups.
 # ============================================================
 
 # ====================== Builder ======================
-FROM node:20-alpine AS builder
+FROM node:20-slim AS builder
+
+# تثبيت OpenSSL (Prisma يحتاجها)
+RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -21,7 +24,7 @@ COPY tsconfig.base.json ./
 COPY apps/api/package.json ./apps/api/
 COPY apps/web/package.json ./apps/web/
 
-# تثبيت dependencies للـ api فقط (filter)
+# تثبيت dependencies للـ api فقط
 RUN pnpm install --filter @jawhara/api... --no-frozen-lockfile
 
 # نسخ مصدر الـ api
@@ -33,7 +36,10 @@ RUN pnpm prisma generate
 RUN pnpm exec nest build
 
 # ====================== Runner ======================
-FROM node:20-alpine AS runner
+FROM node:20-slim AS runner
+
+# تثبيت OpenSSL مرة ثانية في صورة التشغيل
+RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
