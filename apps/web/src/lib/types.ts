@@ -27,6 +27,19 @@ export type OwnershipType = 'OWNED' | 'CONSIGNMENT' | 'OLD_GOLD';
 
 export type PricingMode = 'DYNAMIC' | 'FIXED' | 'HYBRID';
 
+export type UserRole =
+  | 'PLATFORM_OWNER'
+  | 'TENANT_OWNER'
+  | 'MANAGER'
+  | 'SALESPERSON'
+  | 'ACCOUNTANT'
+  | 'GOLDSMITH'
+  | 'CASHIER'
+  | 'VIEWER';
+
+export type SubscriptionPlan = 'TRIAL' | 'BASIC' | 'PRO' | 'ENTERPRISE';
+export type SubscriptionStatus = 'ACTIVE' | 'EXPIRED' | 'SUSPENDED' | 'CANCELED';
+
 export type WeightUnit = 'GRAM' | 'CARAT' | 'PIECE' | 'OUNCE';
 
 export interface Branch {
