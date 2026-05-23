@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -13,7 +13,7 @@ interface LoginResponse {
   user: AuthenticatedUser;
 }
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const from = searchParams.get('from') ?? '/';
@@ -49,6 +49,63 @@ export default function LoginPage() {
   });
 
   return (
+    <form onSubmit={(e) => { e.preventDefault(); mutation.mutate(); }} className="space-y-4">
+      <div>
+        <label className="label">البريد الإلكتروني</label>
+        <div className="relative">
+          <Mail className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="email"
+            required
+            className="input pr-9"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="email@example.com"
+            autoComplete="email"
+            dir="ltr"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="label">كلمة المرور</label>
+        <div className="relative">
+          <Lock className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type={showPassword ? 'text' : 'password'}
+            required
+            minLength={6}
+            className="input pr-9 pl-9"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+            autoComplete="current-password"
+            dir="ltr"
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword(!showPassword)}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+          >
+            {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+          </button>
+        </div>
+      </div>
+
+      <button
+        type="submit"
+        disabled={mutation.isPending}
+        className="btn-gold w-full flex items-center justify-center gap-2 disabled:opacity-60"
+      >
+        <LogIn className="w-4 h-4" />
+        {mutation.isPending ? 'جاري الدخول...' : 'تسجيل الدخول'}
+      </button>
+    </form>
+  );
+}
+
+export default function LoginPage() {
+  return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-amber-50 to-gold-50 p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
@@ -63,58 +120,9 @@ export default function LoginPage() {
           <h2 className="text-lg font-bold text-slate-800 mb-1">تسجيل الدخول</h2>
           <p className="text-sm text-slate-500 mb-6">ادخل بياناتك للوصول إلى لوحة التحكم</p>
 
-          <form onSubmit={(e) => { e.preventDefault(); mutation.mutate(); }} className="space-y-4">
-            <div>
-              <label className="label">البريد الإلكتروني</label>
-              <div className="relative">
-                <Mail className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input
-                  type="email"
-                  required
-                  className="input pr-9"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="email@example.com"
-                  autoComplete="email"
-                  dir="ltr"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="label">كلمة المرور</label>
-              <div className="relative">
-                <Lock className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  minLength={6}
-                  className="input pr-9 pl-9"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  autoComplete="current-password"
-                  dir="ltr"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={mutation.isPending}
-              className="btn-gold w-full flex items-center justify-center gap-2 disabled:opacity-60"
-            >
-              <LogIn className="w-4 h-4" />
-              {mutation.isPending ? 'جاري الدخول...' : 'تسجيل الدخول'}
-            </button>
-          </form>
+          <Suspense fallback={<div className="text-sm text-slate-400 py-8 text-center">جاري التحميل...</div>}>
+            <LoginForm />
+          </Suspense>
 
           <div className="mt-8 pt-6 border-t border-slate-100">
             <div className="text-xs text-slate-500 mb-2">حسابات تجريبية:</div>
