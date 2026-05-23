@@ -1,7 +1,5 @@
-// JawharaERP — Prisma Schema
-// Phase 1: Inventory Module
-// Note: All weights use Decimal(12, 4) for gram precision.
-// All prices use Decimal(14, 4) to support varying currency precision.
+// JawharaERP — Multi-Tenant Schema
+// Phase 1 (MVP): Inventory + Auth + Multi-Tenant Foundation
 
 generator client {
   provider      = "prisma-client-js"
@@ -32,8 +30,8 @@ enum Karat {
   K18
   K14
   K10
-  K925 // Sterling silver
-  K950 // Platinum
+  K925
+  K950
   OTHER
 }
 
@@ -45,59 +43,171 @@ enum WeightUnit {
 }
 
 enum ProductStatus {
-  IN_STOCK         // متوفر في المخزون
-  SOLD             // مُباع
-  RESERVED         // محجوز لعميل (Layaway)
-  IN_REPAIR        // في الصيانة
-  IN_MANUFACTURING // في التصنيع
-  CONSIGNMENT_OUT  // بالأمانة عند طرف آخر
-  LOST             // مفقود
-  WRITTEN_OFF      // مشطوب
+  IN_STOCK
+  SOLD
+  RESERVED
+  IN_REPAIR
+  IN_MANUFACTURING
+  CONSIGNMENT_OUT
+  LOST
+  WRITTEN_OFF
 }
 
 enum OwnershipType {
-  OWNED        // مخزون مملوك
-  CONSIGNMENT  // مخزون بالأمانة (من مورد)
-  OLD_GOLD     // ذهب قديم مستلم من عميل
+  OWNED
+  CONSIGNMENT
+  OLD_GOLD
 }
 
-/// آلية تسعير المنتج
 enum PricingMode {
-  /// السعر يُحسب لحظياً = (الوزن × سعر الذهب اليوم) + الأحجار + الأجرة
-  /// مناسب لـ: السبائك، السلاسل، الأساور البسيطة، الخواتم العادية
   DYNAMIC
-
-  /// سعر بيع ثابت تحدده يدوياً (لا يتأثر بتقلبات الذهب)
-  /// مناسب لـ: الماس، الأحجار الكريمة الفاخرة، العلامات التجارية، الأنتيك
   FIXED
-
-  /// هجين: سعر ثابت كحد أدنى + ديناميكي إذا تجاوزه
-  /// مناسب لـ: قطع لها قيمة فنية لكن مع حماية من ارتفاع الذهب
   HYBRID
 }
 
 enum StockMovementType {
-  PURCHASE       // شراء (دخول)
-  SALE           // بيع (خروج)
-  RETURN_IN      // مرتجع من عميل (دخول)
-  RETURN_OUT     // مرتجع لمورد (خروج)
-  TRANSFER_IN    // تحويل وارد بين فروع
-  TRANSFER_OUT   // تحويل صادر بين فروع
-  ADJUSTMENT_IN  // تسوية بالزيادة (جرد)
-  ADJUSTMENT_OUT // تسوية بالنقصان (جرد)
-  MANUFACTURE_IN // إنتاج وارد
-  REPAIR_OUT     // إخراج للصيانة
-  REPAIR_IN      // إرجاع من الصيانة
+  PURCHASE
+  SALE
+  RETURN_IN
+  RETURN_OUT
+  TRANSFER_IN
+  TRANSFER_OUT
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+  MANUFACTURE_IN
+  REPAIR_OUT
+  REPAIR_IN
+}
+
+/// أدوار المستخدمين في النظام
+enum UserRole {
+  PLATFORM_OWNER  // مالك المنصة (أنت) — يدير كل المحلات
+  TENANT_OWNER    // مالك المحل
+  MANAGER         // مدير فرع
+  SALESPERSON     // بائع
+  ACCOUNTANT      // محاسب
+  GOLDSMITH       // صائغ/عامل تصنيع
+  CASHIER         // كاشير
+  VIEWER          // قراءة فقط
+}
+
+/// خطط الاشتراك
+enum SubscriptionPlan {
+  TRIAL       // فترة تجريبية مجانية
+  BASIC       // أساسي
+  PRO         // احترافي
+  ENTERPRISE  // مؤسسات
+}
+
+/// حالة الاشتراك
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+  CANCELED
 }
 
 // ============================================================
-// CORE MODELS
+// MULTI-TENANT CORE
 // ============================================================
 
-/// الفروع (Branches / Locations)
+/// المحلات (المستأجرين)
+/// كل محل عميل مستقل، له بياناته الخاصة المعزولة
+model Tenant {
+  id              String   @id @default(cuid())
+  slug            String   @unique // jawhara-jewels, gold-palace, etc.
+  name            String
+  nameAr          String?
+  businessNumber  String?  // السجل التجاري
+  taxNumber       String?  // الرقم الضريبي
+  phone           String?
+  email           String?
+  address         String?
+  country         String   @default("OM")
+  currency        String   @default("OMR")
+  locale          String   @default("ar")
+  logoUrl         String?
+  isActive        Boolean  @default(true)
+
+  // الاشتراك
+  plan            SubscriptionPlan   @default(TRIAL)
+  status          SubscriptionStatus @default(ACTIVE)
+  trialEndsAt     DateTime?
+  expiresAt       DateTime?
+
+  // حدود الخطة (للفوترة لاحقاً)
+  maxBranches     Int      @default(1)
+  maxUsers        Int      @default(3)
+  maxProducts     Int      @default(500)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  // Relations
+  users           User[]
+  branches        Branch[]
+  categories      Category[]
+  suppliers       Supplier[]
+  products        Product[]
+  goldRates       GoldRate[]
+  stockMovements  StockMovement[]
+
+  @@index([slug])
+  @@index([isActive, deletedAt])
+  @@map("tenants")
+}
+
+/// المستخدمين
+/// PLATFORM_OWNER: tenantId = null
+/// كل المستخدمين الآخرين: ينتمون لـ tenant محدد
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  passwordHash    String
+  name            String
+  nameAr          String?
+  phone           String?
+  avatarUrl       String?
+
+  role            UserRole
+
+  // الانتماء للمحل (null لـ PLATFORM_OWNER)
+  tenantId        String?
+  tenant          Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // الفرع الافتراضي (اختياري)
+  defaultBranchId String?
+
+  // حالة
+  isActive        Boolean   @default(true)
+  emailVerifiedAt DateTime?
+  lastLoginAt     DateTime?
+  lastLoginIp     String?
+
+  // Refresh token (مُجزأ)
+  refreshTokenHash String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  @@index([tenantId])
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+// ============================================================
+// CORE BUSINESS MODELS (now with tenantId)
+// ============================================================
+
 model Branch {
   id          String   @id @default(cuid())
-  code        String   @unique // e.g., "MAIN", "MOJ-01"
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  code        String
   name        String
   nameAr      String?
   address     String?
@@ -110,15 +220,19 @@ model Branch {
   stockMovements  StockMovement[]
   goldRates       GoldRate[]
 
+  @@unique([tenantId, code])
+  @@index([tenantId])
   @@map("branches")
 }
 
-/// تصنيفات المنتجات (شجرة هرمية: مجوهرات > خواتم > خواتم زواج)
 model Category {
   id          String     @id @default(cuid())
+  tenantId    String
+  tenant      Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
   name        String
   nameAr      String?
-  slug        String     @unique
+  slug        String
   parentId    String?
   parent      Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
   children    Category[] @relation("CategoryHierarchy")
@@ -130,14 +244,18 @@ model Category {
 
   products    Product[]
 
+  @@unique([tenantId, slug])
+  @@index([tenantId])
   @@index([parentId])
   @@map("categories")
 }
 
-/// الموردون (سيتم توسيعها في وحدة CRM لاحقاً)
 model Supplier {
   id          String   @id @default(cuid())
-  code        String   @unique
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  code        String
   name        String
   nameAr      String?
   contactName String?
@@ -151,27 +269,24 @@ model Supplier {
 
   products    Product[]
 
+  @@unique([tenantId, code])
+  @@index([tenantId])
   @@map("suppliers")
 }
 
-// ============================================================
-// PRODUCTS — قلب وحدة المخزون
-// ============================================================
-
-/// المنتجات (قطع المجوهرات)
-/// كل قطعة فريدة لها SKU و Barcode خاصين بها، حتى لو كانت من نفس التصميم.
-/// هذا يختلف عن التجزئة العادية لأن وزن كل قطعة مختلف وسعرها يتغير.
 model Product {
   id                 String         @id @default(cuid())
-  sku                String         @unique // رقم تعريفي داخلي
-  barcode            String?        @unique // باركود QR/EAN-13
-  rfidTag            String?        @unique // RFID tag إن وُجد
+  tenantId           String
+  tenant             Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  sku                String
+  barcode            String?
+  rfidTag            String?
   name               String
   nameAr             String?
   description        String?
   descriptionAr      String?
 
-  // التصنيف والمورد
   categoryId         String
   category           Category       @relation(fields: [categoryId], references: [id])
   supplierId         String?
@@ -179,56 +294,49 @@ model Product {
   branchId           String
   branch             Branch         @relation(fields: [branchId], references: [id])
 
-  // معلومات المعدن
   metalType          MetalType      @default(GOLD)
   karat              Karat          @default(K22)
 
-  // الأوزان (كل الأوزان بالجرام، Decimal دقيق)
-  grossWeight        Decimal        @db.Decimal(12, 4) // الوزن الإجمالي
-  netWeight          Decimal        @db.Decimal(12, 4) // وزن المعدن الصافي (بعد طرح الأحجار)
-  stoneWeight        Decimal        @default(0) @db.Decimal(12, 4) // وزن الأحجار
+  grossWeight        Decimal        @db.Decimal(12, 4)
+  netWeight          Decimal        @db.Decimal(12, 4)
+  stoneWeight        Decimal        @default(0) @db.Decimal(12, 4)
 
-  // وحدة البيع (هل تُباع بالقطعة أم بالجرام)
   sellingUnit        WeightUnit     @default(GRAM)
 
-  // التسعير
-  pricingMode        PricingMode    @default(DYNAMIC) // آلية حساب السعر
-  makingCharge       Decimal        @default(0) @db.Decimal(14, 4) // أجرة الصياغة (مقطوعة)
-  makingChargePerGram Decimal       @default(0) @db.Decimal(14, 4) // أجرة الصياغة بالجرام
-  fixedSalePrice     Decimal?       @db.Decimal(14, 4) // سعر بيع ثابت (يُستخدم مع FIXED أو HYBRID)
-  costPrice          Decimal?       @db.Decimal(14, 4) // التكلفة (سعر الشراء)
-  safetyMarginPct    Decimal        @default(0) @db.Decimal(6, 2) // هامش أمان % (للحماية من تقلبات الذهب)
+  pricingMode        PricingMode    @default(DYNAMIC)
+  makingCharge       Decimal        @default(0) @db.Decimal(14, 4)
+  makingChargePerGram Decimal       @default(0) @db.Decimal(14, 4)
+  fixedSalePrice     Decimal?       @db.Decimal(14, 4)
+  costPrice          Decimal?       @db.Decimal(14, 4)
+  safetyMarginPct    Decimal        @default(0) @db.Decimal(6, 2)
 
-  // البصمة والشهادات
-  hallmark           String?        // رقم البصمة الرسمية
-  hallmarkedAt       DateTime?      // تاريخ التختيم
-  hallmarkAuthority  String?        // جهة الاعتماد
+  hallmark           String?
+  hallmarkedAt       DateTime?
+  hallmarkAuthority  String?
 
-  // الحالة والملكية
   status             ProductStatus  @default(IN_STOCK)
   ownershipType      OwnershipType  @default(OWNED)
 
-  // الصور
   primaryImageUrl    String?
   imageUrls          String[]       @default([])
 
-  // البيانات الفنية الإضافية (مرنة)
-  designCode         String?        // رمز التصميم (للقطع المتشابهة)
-  size               String?        // مقاس (للخواتم/الأساور)
-  occasion           String?        // مناسبة (زواج، خطوبة، إلخ)
+  designCode         String?
+  size               String?
+  occasion           String?
   notes              String?
   notesAr            String?
 
-  // التواريخ
-  receivedAt         DateTime?      // تاريخ استلام/إدخال المخزون
+  receivedAt         DateTime?
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
-  deletedAt          DateTime?      // Soft delete
+  deletedAt          DateTime?
 
-  // العلاقات
   stones             ProductStone[]
   stockMovements     StockMovement[]
 
+  @@unique([tenantId, sku])
+  @@unique([tenantId, barcode])
+  @@index([tenantId])
   @@index([categoryId])
   @@index([branchId])
   @@index([status])
@@ -237,25 +345,23 @@ model Product {
   @@map("products")
 }
 
-/// أحجار المنتج (الألماس، الياقوت، الزمرد، إلخ)
-/// قطعة واحدة قد تحتوي عدة أنواع أحجار - لذلك جدول منفصل
 model ProductStone {
   id             String   @id @default(cuid())
   productId      String
   product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 
-  stoneType      String   // "Diamond" | "Ruby" | "Emerald" | "Sapphire" | etc.
+  stoneType      String
   stoneTypeAr    String?
-  count          Int      // عدد الحبات
-  caratWeight    Decimal  @db.Decimal(12, 4) // الوزن بالقيراط
-  clarity        String?  // درجة النقاء (VVS1, VS2, etc.)
-  color          String?  // اللون (D, E, F, etc. للألماس)
-  cut            String?  // القَص (Excellent, Very Good, Good)
-  shape          String?  // الشكل (Round, Princess, Oval)
-  certificateNo  String?  // رقم شهادة GIA/IGI
-  certificateUrl String?  // رابط الشهادة الممسوحة
-  pricePerCarat  Decimal? @db.Decimal(14, 4) // سعر القيراط (اختياري لحساب القيمة)
-  totalValue     Decimal? @db.Decimal(14, 4) // القيمة الإجمالية
+  count          Int
+  caratWeight    Decimal  @db.Decimal(12, 4)
+  clarity        String?
+  color          String?
+  cut            String?
+  shape          String?
+  certificateNo  String?
+  certificateUrl String?
+  pricePerCarat  Decimal? @db.Decimal(14, 4)
+  totalValue     Decimal? @db.Decimal(14, 4)
   notes          String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -264,62 +370,57 @@ model ProductStone {
   @@map("product_stones")
 }
 
-// ============================================================
-// GOLD RATES — سعر الذهب اليومي
-// ============================================================
-
-/// أسعار الذهب اليومية (لكل عيار وكل فرع، مع تاريخ ووقت)
-/// هذه الأسعار تُستخدم في وقت البيع لحساب قيمة القطعة.
-/// يجب إدخالها صباح كل يوم.
 model GoldRate {
   id           String     @id @default(cuid())
-  branchId     String?    // إذا null = سعر عام لكل الفروع
+  tenantId     String
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  branchId     String?
   branch       Branch?    @relation(fields: [branchId], references: [id])
+
   metalType    MetalType  @default(GOLD)
   karat        Karat
   ratePerGram  Decimal    @db.Decimal(14, 4)
-  currency     String     @default("OMR") // ISO currency code
+  currency     String     @default("OMR")
   effectiveDate DateTime  @default(now())
-  source       String?    // "manual" | "api:goldapi.io" | etc.
+  source       String?
   notes        String?
-  createdById  String?    // سيُربط بـ User لاحقاً
+  createdById  String?
   createdAt    DateTime   @default(now())
 
+  @@index([tenantId])
   @@index([effectiveDate])
-  @@index([branchId, karat, effectiveDate])
+  @@index([tenantId, branchId, karat, effectiveDate])
   @@map("gold_rates")
 }
 
-// ============================================================
-// STOCK MOVEMENTS — حركات المخزون
-// ============================================================
-
-/// سجل كل حركة دخول أو خروج من المخزون.
-/// هذا الجدول هو "Source of Truth" — حالة المخزون تُحسب منه.
 model StockMovement {
   id            String            @id @default(cuid())
+  tenantId      String
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
   productId     String
   product       Product           @relation(fields: [productId], references: [id])
   branchId      String
   branch        Branch            @relation(fields: [branchId], references: [id])
 
   movementType  StockMovementType
-  quantity      Int               @default(1) // عادةً 1 للمجوهرات لأن كل قطعة فريدة
-  weightChange  Decimal           @db.Decimal(12, 4) // التغيّر في الوزن
+  quantity      Int               @default(1)
+  weightChange  Decimal           @db.Decimal(12, 4)
 
-  // المرجع (فاتورة، أمر شراء، تحويل، إلخ) — سيُربط لاحقاً
-  referenceType String?  // "Invoice" | "PurchaseOrder" | "Transfer" | "Adjustment"
+  referenceType String?
   referenceId   String?
 
-  fromBranchId  String?  // للتحويلات
+  fromBranchId  String?
   toBranchId    String?
 
   reason        String?
   notes         String?
-  performedById String?  // سيُربط بـ User لاحقاً
+  performedById String?
   movementDate  DateTime @default(now())
   createdAt     DateTime @default(now())
 
+  @@index([tenantId])
   @@index([productId])
   @@index([branchId])
   @@index([movementType])

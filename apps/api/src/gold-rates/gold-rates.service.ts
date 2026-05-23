@@ -1,7 +1,16 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Karat, MetalType, Prisma } from '@prisma/client';
+import { Type } from 'class-transformer';
 import { PrismaService } from '../prisma/prisma.service';
-import { IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsArray,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateGoldRateDto {
@@ -21,6 +30,35 @@ export class CreateGoldRateDto {
   @IsOptional() @IsString() currency?: string;
 
   @ApiPropertyOptional() @IsOptional() @IsString() notes?: string;
+}
+
+class KaratRateEntry {
+  @ApiProperty({ enum: Karat })
+  @IsEnum(Karat) karat: Karat;
+
+  @ApiProperty({ example: 34.5 })
+  @IsNumber({ maxDecimalPlaces: 4 }) @Min(0)
+  ratePerGram: number;
+}
+
+export class BulkGoldRatesDto {
+  @ApiPropertyOptional({ description: 'فرع محدد (null = عام)' })
+  @IsOptional() @IsString() branchId?: string;
+
+  @ApiPropertyOptional({ default: 'OMR' })
+  @IsOptional() @IsString() currency?: string;
+
+  @ApiProperty({
+    type: [KaratRateEntry],
+    description: 'قائمة العيارات وأسعارها (24/22/21/18/14)',
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => KaratRateEntry)
+  rates: KaratRateEntry[];
+
+  @ApiPropertyOptional()
+  @IsOptional() @IsString() notes?: string;
 }
 
 @Injectable()
@@ -43,6 +81,39 @@ export class GoldRatesService {
         source: 'manual',
       },
     });
+  }
+
+  /**
+   * إدخال أسعار متعددة لكل العيارات دفعة واحدة.
+   * مثالي للتحديث اليومي الصباحي.
+   */
+  async createBulk(dto: BulkGoldRatesDto) {
+    if (!dto.rates?.length) {
+      throw new BadRequestException('يجب إدخال سعر واحد على الأقل');
+    }
+    const created = await this.prisma.$transaction(
+      dto.rates.map((r) =>
+        this.prisma.goldRate.create({
+          data: {
+            branchId: dto.branchId,
+            metalType: MetalType.GOLD,
+            karat: r.karat,
+            ratePerGram: new Prisma.Decimal(r.ratePerGram),
+            currency: dto.currency ?? 'OMR',
+            notes: dto.notes,
+            source: 'manual-bulk',
+          },
+        }),
+      ),
+    );
+    return {
+      success: true,
+      count: created.length,
+      rates: created.map((r) => ({
+        karat: r.karat,
+        ratePerGram: r.ratePerGram.toNumber(),
+      })),
+    };
   }
 
   /**

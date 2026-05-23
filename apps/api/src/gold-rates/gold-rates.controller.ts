@@ -3,7 +3,11 @@ import { ApiTags, ApiOperation, ApiQuery, ApiBody } from '@nestjs/swagger';
 import { Karat } from '@prisma/client';
 import { IsOptional, IsString, IsNumber, Min } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { CreateGoldRateDto, GoldRatesService } from './gold-rates.service';
+import {
+  BulkGoldRatesDto,
+  CreateGoldRateDto,
+  GoldRatesService,
+} from './gold-rates.service';
 import { GoldPriceApiService } from './gold-price-api.service';
 
 export class SyncRatesDto {
@@ -29,9 +33,17 @@ export class GoldRatesController {
   ) {}
 
   @Post()
-  @ApiOperation({ summary: 'إدخال سعر ذهب جديد يدوياً' })
+  @ApiOperation({ summary: 'إدخال سعر ذهب جديد يدوياً (عيار واحد)' })
   create(@Body() dto: CreateGoldRateDto) {
     return this.goldRates.create(dto);
+  }
+
+  @Post('bulk')
+  @ApiOperation({
+    summary: '⚡ إدخال أسعار كل العيارات دفعة واحدة (التحديث اليومي السريع)',
+  })
+  createBulk(@Body() dto: BulkGoldRatesDto) {
+    return this.goldRates.createBulk(dto);
   }
 
   @Post('sync')

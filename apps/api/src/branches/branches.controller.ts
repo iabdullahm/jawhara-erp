@@ -1,17 +1,64 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
-import { BranchesService, CreateBranchDto, UpdateBranchDto } from './branches.service';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { UserRole } from '@prisma/client';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { AuthUser, CurrentUser } from '../auth/decorators/current-user.decorator';
+import {
+  BranchesService,
+  CreateBranchDto,
+  UpdateBranchDto,
+} from './branches.service';
 
 @ApiTags('Branches — الفروع')
+@ApiBearerAuth()
 @Controller('branches')
 export class BranchesController {
   constructor(private readonly branches: BranchesService) {}
 
-  @Post() create(@Body() dto: CreateBranchDto) { return this.branches.create(dto); }
-  @Get() findAll() { return this.branches.findAll(); }
-  @Get(':id') findOne(@Param('id') id: string) { return this.branches.findOne(id); }
-  @Patch(':id') update(@Param('id') id: string, @Body() dto: UpdateBranchDto) {
-    return this.branches.update(id, dto);
+  @Post()
+  @Roles(UserRole.PLATFORM_OWNER, UserRole.TENANT_OWNER, UserRole.MANAGER)
+  @ApiQuery({ name: 'tenantId', required: false })
+  create(
+    @Body() dto: CreateBranchDto,
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.branches.create(dto, user, tenantId);
   }
-  @Delete(':id') remove(@Param('id') id: string) { return this.branches.remove(id); }
+
+  @Get()
+  @ApiQuery({ name: 'tenantId', required: false })
+  findAll(@CurrentUser() user: AuthUser, @Query('tenantId') tenantId?: string) {
+    return this.branches.findAll(user, tenantId);
+  }
+
+  @Get(':id')
+  findOne(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.branches.findOne(id, user);
+  }
+
+  @Patch(':id')
+  @Roles(UserRole.PLATFORM_OWNER, UserRole.TENANT_OWNER, UserRole.MANAGER)
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateBranchDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.branches.update(id, dto, user);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.PLATFORM_OWNER, UserRole.TENANT_OWNER)
+  remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.branches.remove(id, user);
+  }
 }
