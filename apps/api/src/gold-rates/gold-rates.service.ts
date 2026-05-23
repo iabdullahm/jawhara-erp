@@ -61,17 +61,18 @@ export class BulkGoldRatesDto {
   @IsOptional() @IsString() notes?: string;
 }
 
+import { AuthUser } from '../auth/decorators/current-user.decorator';
+import { resolveTenantFilter } from '../common/tenant-context.helper';
+
 @Injectable()
 export class GoldRatesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * إدخال سعر ذهب جديد ليوم/وقت معين.
-   * نحفظ السعر مع طابع زمني — السعر الفعلي هو آخر سعر مُدخَل.
-   */
-  async create(dto: CreateGoldRateDto) {
+  async create(dto: CreateGoldRateDto, user: AuthUser, tenantId?: string) {
+    const targetTenantId = resolveTenantFilter(user, tenantId);
     return this.prisma.goldRate.create({
       data: {
+        tenantId: targetTenantId,
         branchId: dto.branchId,
         metalType: dto.metalType,
         karat: dto.karat,
@@ -79,15 +80,13 @@ export class GoldRatesService {
         currency: dto.currency ?? 'OMR',
         notes: dto.notes,
         source: 'manual',
+        createdById: user.userId,
       },
     });
   }
 
-  /**
-   * إدخال أسعار متعددة لكل العيارات دفعة واحدة.
-   * مثالي للتحديث اليومي الصباحي.
-   */
-  async createBulk(dto: BulkGoldRatesDto) {
+  async createBulk(dto: BulkGoldRatesDto, user: AuthUser, tenantId?: string) {
+    const targetTenantId = resolveTenantFilter(user, tenantId);
     if (!dto.rates?.length) {
       throw new BadRequestException('يجب إدخال سعر واحد على الأقل');
     }
@@ -95,6 +94,7 @@ export class GoldRatesService {
       dto.rates.map((r) =>
         this.prisma.goldRate.create({
           data: {
+            tenantId: targetTenantId,
             branchId: dto.branchId,
             metalType: MetalType.GOLD,
             karat: r.karat,
@@ -102,6 +102,7 @@ export class GoldRatesService {
             currency: dto.currency ?? 'OMR',
             notes: dto.notes,
             source: 'manual-bulk',
+            createdById: user.userId,
           },
         }),
       ),
@@ -117,18 +118,18 @@ export class GoldRatesService {
   }
 
   /**
-   * استرجاع آخر سعر فعّال لعيار معين في فرع معين.
-   * ترتيب الأولوية: سعر الفرع المحدد > السعر العام.
+   * استرجاع آخر سعر فعّال لعيار/فرع/tenant معين
    */
   async getCurrentRate(params: {
+    tenantId: string;
     metalType: MetalType;
     karat: Karat;
     branchId?: string;
   }) {
-    // أولاً: ابحث عن سعر للفرع المحدد
     if (params.branchId) {
       const branchRate = await this.prisma.goldRate.findFirst({
         where: {
+          tenantId: params.tenantId,
           branchId: params.branchId,
           metalType: params.metalType,
           karat: params.karat,
@@ -137,9 +138,9 @@ export class GoldRatesService {
       });
       if (branchRate) return branchRate;
     }
-    // ثانياً: سعر عام (branchId = null)
     return this.prisma.goldRate.findFirst({
       where: {
+        tenantId: params.tenantId,
         branchId: null,
         metalType: params.metalType,
         karat: params.karat,
@@ -148,14 +149,13 @@ export class GoldRatesService {
     });
   }
 
-  /**
-   * استرجاع أحدث الأسعار لكل العيارات (لعرضها في لوحة التحكم).
-   */
-  async getTodayRates(branchId?: string) {
+  async getTodayRates(user: AuthUser, branchId?: string, explicitTenantId?: string) {
+    const tenantId = resolveTenantFilter(user, explicitTenantId);
     const karats = Object.values(Karat);
     const results = await Promise.all(
       karats.map(async (k) => {
         const rate = await this.getCurrentRate({
+          tenantId,
           metalType: MetalType.GOLD,
           karat: k,
           branchId,
@@ -166,14 +166,12 @@ export class GoldRatesService {
     return results.filter((r) => r.rate !== null);
   }
 
-  /**
-   * تاريخ أسعار الذهب (للرسم البياني).
-   */
-  history(karat: Karat, days = 30) {
+  history(karat: Karat, user: AuthUser, days = 30, explicitTenantId?: string) {
+    const tenantId = resolveTenantFilter(user, explicitTenantId);
     const since = new Date();
     since.setDate(since.getDate() - days);
     return this.prisma.goldRate.findMany({
-      where: { karat, effectiveDate: { gte: since } },
+      where: { tenantId, karat, effectiveDate: { gte: since } },
       orderBy: { effectiveDate: 'asc' },
     });
   }

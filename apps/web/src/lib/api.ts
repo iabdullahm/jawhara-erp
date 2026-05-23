@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { clearAuth, getToken } from './auth';
 
 const baseURL =
   process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
@@ -10,9 +11,27 @@ export const api = axios.create({
   },
 });
 
-// لاحقاً: interceptor لإضافة JWT Auth header
-// api.interceptors.request.use((cfg) => {
-//   const token = localStorage.getItem('access_token');
-//   if (token) cfg.headers.Authorization = `Bearer ${token}`;
-//   return cfg;
-// });
+// إضافة JWT تلقائياً لكل طلب
+api.interceptors.request.use((cfg) => {
+  const token = getToken();
+  if (token) {
+    cfg.headers = cfg.headers ?? {};
+    (cfg.headers as any).Authorization = `Bearer ${token}`;
+  }
+  return cfg;
+});
+
+// عند 401: مسح الجلسة وإعادة توجيه للـ login
+api.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err?.response?.status === 401 && typeof window !== 'undefined') {
+      const onLoginPage = window.location.pathname === '/login';
+      if (!onLoginPage) {
+        clearAuth();
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(err);
+  },
+);

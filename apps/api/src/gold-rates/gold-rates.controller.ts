@@ -1,8 +1,8 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiQuery, ApiBody } from '@nestjs/swagger';
-import { Karat } from '@prisma/client';
-import { IsOptional, IsString, IsNumber, Min } from 'class-validator';
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { Karat, UserRole } from '@prisma/client';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { AuthUser, CurrentUser } from '../auth/decorators/current-user.decorator';
 import {
   BulkGoldRatesDto,
   CreateGoldRateDto,
@@ -10,21 +10,8 @@ import {
 } from './gold-rates.service';
 import { GoldPriceApiService } from './gold-price-api.service';
 
-export class SyncRatesDto {
-  @ApiPropertyOptional({ default: 'USD', description: 'عملة المصدر من API' })
-  @IsOptional() @IsString() baseCurrency?: string;
-
-  @ApiPropertyOptional({ default: 'OMR', description: 'العملة المحلية للحفظ' })
-  @IsOptional() @IsString() targetCurrency?: string;
-
-  @ApiPropertyOptional({ description: 'سعر صرف يدوي (افتراضياً يُستخدم سعر مدمج)' })
-  @IsOptional() @IsNumber() @Min(0) fxRate?: number;
-
-  @ApiPropertyOptional({ description: 'فرع محدد، أو null لسعر عام' })
-  @IsOptional() @IsString() branchId?: string;
-}
-
-@ApiTags('Gold Rates — أسعار الذهب اليومية')
+@ApiTags('Gold Rates — أسعار الذهب')
+@ApiBearerAuth()
 @Controller('gold-rates')
 export class GoldRatesController {
   constructor(
@@ -33,38 +20,52 @@ export class GoldRatesController {
   ) {}
 
   @Post()
-  @ApiOperation({ summary: 'إدخال سعر ذهب جديد يدوياً (عيار واحد)' })
-  create(@Body() dto: CreateGoldRateDto) {
-    return this.goldRates.create(dto);
+  @Roles(UserRole.PLATFORM_OWNER, UserRole.TENANT_OWNER, UserRole.MANAGER)
+  @ApiOperation({ summary: 'إدخال سعر ذهب (عيار واحد)' })
+  create(
+    @Body() dto: CreateGoldRateDto,
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.goldRates.create(dto, user, tenantId);
   }
 
   @Post('bulk')
-  @ApiOperation({
-    summary: '⚡ إدخال أسعار كل العيارات دفعة واحدة (التحديث اليومي السريع)',
-  })
-  createBulk(@Body() dto: BulkGoldRatesDto) {
-    return this.goldRates.createBulk(dto);
-  }
-
-  @Post('sync')
-  @ApiOperation({
-    summary: '🔄 جلب أسعار الذهب الحقيقية من goldapi.io وحفظها',
-    description: 'يجلب أسعار 5 عيارات (24/22/21/18/14) ويحوّلها للعملة المحلية',
-  })
-  syncFromApi(@Body() dto: SyncRatesDto) {
-    return this.goldPriceApi.syncRates(dto);
+  @Roles(UserRole.PLATFORM_OWNER, UserRole.TENANT_OWNER, UserRole.MANAGER)
+  @ApiOperation({ summary: '⚡ إدخال أسعار كل العيارات دفعة واحدة' })
+  createBulk(
+    @Body() dto: BulkGoldRatesDto,
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.goldRates.createBulk(dto, user, tenantId);
   }
 
   @Get('today')
   @ApiOperation({ summary: 'أسعار اليوم لجميع العيارات' })
   @ApiQuery({ name: 'branchId', required: false })
-  today(@Query('branchId') branchId?: string) {
-    return this.goldRates.getTodayRates(branchId);
+  @ApiQuery({ name: 'tenantId', required: false })
+  today(
+    @CurrentUser() user: AuthUser,
+    @Query('branchId') branchId?: string,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.goldRates.getTodayRates(user, branchId, tenantId);
   }
 
   @Get('history/:karat')
-  @ApiOperation({ summary: 'تاريخ أسعار الذهب لعيار محدد (آخر N يوم)' })
-  history(@Param('karat') karat: Karat, @Query('days') days?: string) {
-    return this.goldRates.history(karat, days ? parseInt(days, 10) : 30);
+  @ApiOperation({ summary: 'تاريخ أسعار الذهب' })
+  history(
+    @Param('karat') karat: Karat,
+    @CurrentUser() user: AuthUser,
+    @Query('days') days?: string,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.goldRates.history(
+      karat,
+      user,
+      days ? parseInt(days, 10) : 30,
+      tenantId,
+    );
   }
 }

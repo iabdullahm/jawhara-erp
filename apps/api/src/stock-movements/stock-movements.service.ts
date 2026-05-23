@@ -3,6 +3,8 @@ import { Prisma, StockMovementType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString, IsEnum, IsDateString } from 'class-validator';
+import { AuthUser } from '../auth/decorators/current-user.decorator';
+import { resolveTenantFilter } from '../common/tenant-context.helper';
 
 export class QueryMovementsDto {
   @ApiPropertyOptional() @IsOptional() @IsString() productId?: string;
@@ -17,8 +19,10 @@ export class QueryMovementsDto {
 export class StockMovementsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list(query: QueryMovementsDto) {
+  list(query: QueryMovementsDto, user: AuthUser, tenantId?: string) {
+    const targetTenantId = resolveTenantFilter(user, tenantId);
     const where: Prisma.StockMovementWhereInput = {
+      tenantId: targetTenantId,
       ...(query.productId && { productId: query.productId }),
       ...(query.branchId && { branchId: query.branchId }),
       ...(query.movementType && { movementType: query.movementType }),

@@ -12,6 +12,11 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { QueryProductsDto } from './dto/query-products.dto';
 import { GoldRatesService } from '../gold-rates/gold-rates.service';
+import { AuthUser } from '../auth/decorators/current-user.decorator';
+import {
+  assertCanAccessTenant,
+  resolveTenantFilter,
+} from '../common/tenant-context.helper';
 
 @Injectable()
 export class ProductsService {
@@ -29,7 +34,9 @@ export class ProductsService {
    * - يُسجّل حركة مخزون "PURCHASE" تلقائياً
    * - ينشئ الأحجار المرتبطة في نفس المعاملة
    */
-  async create(dto: CreateProductDto) {
+  async create(dto: CreateProductDto, user: AuthUser, explicitTenantId?: string) {
+    const tenantId = resolveTenantFilter(user, explicitTenantId);
+
     // التحقق المنطقي من الأوزان
     const gross = new Decimal(dto.grossWeight);
     const net = new Decimal(dto.netWeight);
@@ -41,17 +48,18 @@ export class ProductsService {
       );
     }
 
-    // التحقق من وجود الفرع والتصنيف
-    await this.ensureBranchExists(dto.branchId);
-    await this.ensureCategoryExists(dto.categoryId);
+    // التحقق من وجود الفرع والتصنيف داخل نفس الـ tenant
+    await this.ensureBranchExists(dto.branchId, tenantId);
+    await this.ensureCategoryExists(dto.categoryId, tenantId);
 
     // توليد SKU و Barcode تلقائياً عند الحاجة
-    const sku = dto.sku ?? (await this.generateSku(dto.metalType, dto.karat));
+    const sku = dto.sku ?? (await this.generateSku(dto.metalType, dto.karat, tenantId));
     const barcode = dto.barcode ?? this.generateBarcode(sku);
 
-    // التحقق من عدم تكرار SKU/Barcode
+    // التحقق من عدم تكرار SKU/Barcode داخل نفس الـ tenant
     const existing = await this.prisma.product.findFirst({
       where: {
+        tenantId,
         OR: [
           { sku },
           { barcode },
@@ -67,6 +75,7 @@ export class ProductsService {
     return this.prisma.$transaction(async (tx) => {
       const product = await tx.product.create({
         data: {
+          tenantId,
           sku,
           barcode,
           rfidTag: dto.rfidTag,
@@ -138,6 +147,7 @@ export class ProductsService {
       // تسجيل حركة مخزون افتتاحية
       await tx.stockMovement.create({
         data: {
+          tenantId,
           productId: product.id,
           branchId: product.branchId,
           movementType: StockMovementType.PURCHASE,
@@ -154,9 +164,10 @@ export class ProductsService {
   }
 
   /**
-   * استرجاع قائمة المنتجات مع فلترة وبحث وتصفح.
+   * استرجاع قائمة المنتجات مع فلترة وبحث وتصفح — مع tenant isolation.
    */
-  async findAll(query: QueryProductsDto) {
+  async findAll(query: QueryProductsDto, user: AuthUser, explicitTenantId?: string) {
+    const tenantId = resolveTenantFilter(user, explicitTenantId);
     const {
       search,
       categoryId,
@@ -173,6 +184,7 @@ export class ProductsService {
     } = query;
 
     const where: Prisma.ProductWhereInput = {
+      tenantId,
       deletedAt: null,
       ...(categoryId && { categoryId }),
       ...(branchId && { branchId }),
@@ -221,9 +233,9 @@ export class ProductsService {
   }
 
   /**
-   * استرجاع منتج بالـ ID مع كل التفاصيل.
+   * استرجاع منتج بالـ ID مع كل التفاصيل (يتحقق من الـ tenant).
    */
-  async findOne(id: string) {
+  async findOne(id: string, user?: AuthUser) {
     const product = await this.prisma.product.findFirst({
       where: { id, deletedAt: null },
       include: {
@@ -240,15 +252,18 @@ export class ProductsService {
     if (!product) {
       throw new NotFoundException(`المنتج غير موجود: ${id}`);
     }
+    if (user) assertCanAccessTenant(user, product.tenantId);
     return product;
   }
 
   /**
-   * استرجاع منتج بالباركود (لشاشة POS).
+   * استرجاع منتج بالباركود (لشاشة POS) — يبحث فقط داخل tenant المستخدم.
    */
-  async findByBarcode(barcode: string) {
+  async findByBarcode(barcode: string, user: AuthUser, explicitTenantId?: string) {
+    const tenantId = resolveTenantFilter(user, explicitTenantId);
     const product = await this.prisma.product.findFirst({
       where: {
+        tenantId,
         OR: [{ barcode }, { sku: barcode }, { rfidTag: barcode }],
         deletedAt: null,
       },
@@ -270,8 +285,8 @@ export class ProductsService {
    * - FIXED: السعر = fixedSalePrice (ثابت بغض النظر عن السوق)
    * - HYBRID: max(FIXED, DYNAMIC) — يحمي من ارتفاع الذهب فوق السعر الثابت
    */
-  async calculateCurrentPrice(id: string) {
-    const product = await this.findOne(id);
+  async calculateCurrentPrice(id: string, user?: AuthUser) {
+    const product = await this.findOne(id, user);
 
     // ===== FIXED mode =====
     if (product.pricingMode === 'FIXED') {
@@ -396,8 +411,8 @@ export class ProductsService {
     };
   }
 
-  async update(id: string, dto: UpdateProductDto) {
-    await this.findOne(id); // throws if not found
+  async update(id: string, dto: UpdateProductDto, user: AuthUser) {
+    await this.findOne(id, user); // throws if not found or different tenant
 
     const data: Prisma.ProductUpdateInput = { ...dto } as any;
     if (dto.grossWeight !== undefined)
@@ -428,8 +443,8 @@ export class ProductsService {
   /**
    * حذف ناعم (Soft Delete) — لا نحذف المنتجات فعلياً بسبب السجلات المالية.
    */
-  async remove(id: string) {
-    await this.findOne(id);
+  async remove(id: string, user: AuthUser) {
+    await this.findOne(id, user);
     return this.prisma.product.update({
       where: { id },
       data: { deletedAt: new Date(), status: 'WRITTEN_OFF' },
@@ -440,32 +455,31 @@ export class ProductsService {
   // Helpers
   // ============================================================
 
-  private async ensureBranchExists(branchId: string) {
-    const exists = await this.prisma.branch.findUnique({
-      where: { id: branchId },
+  private async ensureBranchExists(branchId: string, tenantId: string) {
+    const exists = await this.prisma.branch.findFirst({
+      where: { id: branchId, tenantId },
     });
-    if (!exists) throw new NotFoundException(`الفرع غير موجود: ${branchId}`);
+    if (!exists) throw new NotFoundException(`الفرع غير موجود في هذا المحل: ${branchId}`);
   }
 
-  private async ensureCategoryExists(categoryId: string) {
-    const exists = await this.prisma.category.findUnique({
-      where: { id: categoryId },
+  private async ensureCategoryExists(categoryId: string, tenantId: string) {
+    const exists = await this.prisma.category.findFirst({
+      where: { id: categoryId, tenantId },
     });
     if (!exists)
-      throw new NotFoundException(`التصنيف غير موجود: ${categoryId}`);
+      throw new NotFoundException(`التصنيف غير موجود في هذا المحل: ${categoryId}`);
   }
 
   /**
-   * توليد SKU بنمط: {METAL}{KARAT}-{YYMM}-{SEQUENCE}
-   * مثال: GR22K-2605-00042
+   * توليد SKU بنمط: {METAL}{KARAT}-{YYMM}-{SEQUENCE} داخل الـ tenant
    */
-  private async generateSku(metalType: string, karat: string): Promise<string> {
+  private async generateSku(metalType: string, karat: string, tenantId: string): Promise<string> {
     const prefix = `${metalType.substring(0, 2)}${karat}`;
     const yymm =
       new Date().toISOString().substring(2, 4) +
       new Date().toISOString().substring(5, 7);
     const count = await this.prisma.product.count({
-      where: { sku: { startsWith: `${prefix}-${yymm}-` } },
+      where: { tenantId, sku: { startsWith: `${prefix}-${yymm}-` } },
     });
     const seq = String(count + 1).padStart(5, '0');
     return `${prefix}-${yymm}-${seq}`;
