@@ -93,6 +93,112 @@ export class AuthService {
   }
 
   /**
+   * Bootstrap: إنشاء أول PLATFORM_OWNER + Tenant افتراضي
+   * متاح فقط إذا قاعدة البيانات فارغة (لا توجد مستخدمين)
+   */
+  async bootstrap(dto: { email: string; password: string; name: string }) {
+    const userCount = await this.prisma.user.count();
+    if (userCount > 0) {
+      throw new ConflictException(
+        'النظام مُهيأ بالفعل. استخدم /auth/login للدخول.',
+      );
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, 12);
+
+    // إنشاء PLATFORM_OWNER
+    const platformOwner = await this.prisma.user.create({
+      data: {
+        email: dto.email.toLowerCase(),
+        passwordHash,
+        name: dto.name,
+        nameAr: dto.name,
+        role: UserRole.PLATFORM_OWNER,
+      },
+    });
+
+    // إنشاء Tenant تجريبي + TENANT_OWNER
+    const trialEndsAt = new Date();
+    trialEndsAt.setDate(trialEndsAt.getDate() + 30);
+
+    const demoTenantOwnerHash = await bcrypt.hash('Owner@2026', 12);
+    const tenant = await this.prisma.tenant.create({
+      data: {
+        slug: 'jawhara-demo',
+        name: 'Jawhara Demo Jewelry',
+        nameAr: 'مجوهرات جوهرة (تجريبي)',
+        plan: SubscriptionPlan.PRO,
+        trialEndsAt,
+        maxBranches: 5,
+        maxUsers: 20,
+        maxProducts: 10000,
+        users: {
+          create: [
+            {
+              email: 'owner@jawhara-demo.com',
+              passwordHash: demoTenantOwnerHash,
+              name: 'Demo Owner',
+              nameAr: 'صاحب المحل التجريبي',
+              role: UserRole.TENANT_OWNER,
+            },
+            {
+              email: 'manager@jawhara-demo.com',
+              passwordHash: await bcrypt.hash('Manager@2026', 12),
+              name: 'Demo Manager',
+              nameAr: 'مدير الفرع',
+              role: UserRole.MANAGER,
+            },
+            {
+              email: 'sales@jawhara-demo.com',
+              passwordHash: await bcrypt.hash('Sales@2026', 12),
+              name: 'Demo Salesperson',
+              nameAr: 'البائع التجريبي',
+              role: UserRole.SALESPERSON,
+            },
+          ],
+        },
+        branches: {
+          create: [
+            {
+              code: 'MAIN',
+              name: 'Main Showroom',
+              nameAr: 'الفرع الرئيسي',
+              address: 'الموج، مسقط',
+            },
+          ],
+        },
+        categories: {
+          create: [
+            { name: 'Jewelry', nameAr: 'مجوهرات', slug: 'jewelry', sortOrder: 1 },
+            { name: 'Rings', nameAr: 'خواتم', slug: 'rings', sortOrder: 2 },
+            { name: 'Necklaces', nameAr: 'قلائد', slug: 'necklaces', sortOrder: 3 },
+            { name: 'Bracelets', nameAr: 'أساور', slug: 'bracelets', sortOrder: 4 },
+            { name: 'Earrings', nameAr: 'أقراط', slug: 'earrings', sortOrder: 5 },
+          ],
+        },
+      },
+      include: { users: true, branches: true, categories: true },
+    });
+
+    this.logger.log(`✅ Bootstrap complete: PLATFORM_OWNER=${dto.email}, Tenant=${tenant.slug}`);
+
+    return {
+      success: true,
+      message: 'تم تهيئة النظام بنجاح',
+      platformOwner: {
+        email: platformOwner.email,
+        name: platformOwner.name,
+      },
+      demoTenant: {
+        slug: tenant.slug,
+        name: tenant.nameAr,
+        users: tenant.users.map((u) => ({ email: u.email, role: u.role })),
+      },
+      hint: 'استخدم /auth/login للدخول الآن',
+    };
+  }
+
+  /**
    * تسجيل محل جديد (Tenant) + مالكه (TENANT_OWNER)
    * يستخدمه PLATFORM_OWNER فقط
    */
