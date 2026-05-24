@@ -306,6 +306,7 @@ export class ProductsService {
 
     // ===== DYNAMIC أو HYBRID — نحسب السعر الديناميكي =====
     const goldRate = await this.goldRatesService.getCurrentRate({
+      tenantId: product.tenantId,
       metalType: product.metalType,
       karat: product.karat,
       branchId: product.branchId,

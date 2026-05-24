@@ -82,11 +82,12 @@ export class GoldPriceApiService {
    * @param fxRate سعر الصرف من baseCurrency إلى targetCurrency
    */
   async syncRates(options: {
+    tenantId: string;
     baseCurrency?: string;
     targetCurrency?: string;
     fxRate?: number;
     branchId?: string;
-  } = {}) {
+  }) {
     const baseCurrency = options.baseCurrency ?? 'USD';
     const targetCurrency = options.targetCurrency ?? this.config.get<string>('DEFAULT_CURRENCY', 'OMR');
     const fxRate = options.fxRate ?? this.getDefaultFxRate(baseCurrency, targetCurrency);
@@ -110,6 +111,7 @@ export class GoldPriceApiService {
       karatMap.map(({ karat, pricePerGram }) =>
         this.prisma.goldRate.create({
           data: {
+            tenantId: options.tenantId,
             branchId: options.branchId ?? null,
             metalType: MetalType.GOLD,
             karat,
