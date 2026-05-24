@@ -45,6 +45,7 @@ ENV NODE_ENV=production
 EXPOSE 4000
 
 # عند التشغيل: sync schema with DB + start
-# نستخدم db push لأن المشروع لا يحتوي migrations بعد (MVP).
-# في الإنتاج الفعلي، استبدلها بـ prisma migrate deploy + migrations folder.
-CMD ["sh", "-c", "pnpm exec prisma db push --accept-data-loss && node dist/main.js"]
+# --force-reset يمسح DB ويعيد إنشاء كل الجداول (لازم لـ Multi-Tenant migration).
+# ⚠️ في الإنتاج الفعلي، استبدلها بـ prisma migrate deploy + migration scripts.
+# بعد أول تشغيل ناجح، استبدل بـ --accept-data-loss لتجنب فقدان البيانات.
+CMD ["sh", "-c", "pnpm exec prisma db push --force-reset --accept-data-loss && node dist/main.js"]
