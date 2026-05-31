@@ -48,7 +48,7 @@ const navigation: NavItem[] = [
     icon: Building2,
     roles: ['PLATFORM_OWNER'],
   },
-  { name: 'نقطة البيع (POS)', href: '/pos', icon: ShoppingCart, soon: true },
+  { name: 'نقطة البيع (POS)', href: '/pos', icon: ShoppingCart },
   { name: 'العملاء', href: '/customers', icon: Users, soon: true },
   { name: 'التقارير', href: '/reports', icon: FileText, soon: true },
   { name: 'الإعدادات', href: '/settings', icon: Settings, soon: true },

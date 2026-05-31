@@ -10,6 +10,8 @@ import { GoldRatesModule } from './gold-rates/gold-rates.module';
 import { StockMovementsModule } from './stock-movements/stock-movements.module';
 import { BranchesModule } from './branches/branches.module';
 import { HealthModule } from './health/health.module';
+import { CustomersModule } from './customers/customers.module';
+import { InvoicesModule } from './invoices/invoices.module';
 
 @Module({
   imports: [
@@ -27,6 +29,8 @@ import { HealthModule } from './health/health.module';
     GoldRatesModule,
     ProductsModule,
     StockMovementsModule,
+    CustomersModule,
+    InvoicesModule,
   ],
 })
 export class AppModule {}

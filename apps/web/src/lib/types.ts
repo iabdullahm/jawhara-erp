@@ -40,6 +40,36 @@ export type UserRole =
 export type SubscriptionPlan = 'TRIAL' | 'BASIC' | 'PRO' | 'ENTERPRISE';
 export type SubscriptionStatus = 'ACTIVE' | 'EXPIRED' | 'SUSPENDED' | 'CANCELED';
 
+export type InvoiceStatus =
+  | 'DRAFT'
+  | 'PAID'
+  | 'PARTIAL'
+  | 'UNPAID'
+  | 'REFUNDED'
+  | 'CANCELED';
+
+export type PaymentMethod =
+  | 'CASH'
+  | 'CARD'
+  | 'BANK_TRANSFER'
+  | 'CHEQUE'
+  | 'LOYALTY_POINTS'
+  | 'OLD_GOLD'
+  | 'CREDIT'
+  | 'WALLET';
+
+export interface Customer {
+  id: string;
+  name: string;
+  nameAr?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  isVip: boolean;
+  loyaltyPoints: number;
+  outstandingBalance: string | number;
+  totalPurchases?: string | number;
+}
+
 export type WeightUnit = 'GRAM' | 'CARAT' | 'PIECE' | 'OUNCE';
 
 export interface Branch {
